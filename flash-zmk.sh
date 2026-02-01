@@ -25,6 +25,8 @@ FLASH_RIGHT=true
 EXPLICIT_LEFT=false
 EXPLICIT_RIGHT=false
 DEVICE_OVERRIDE=""
+WORK_DIR=""
+MOUNTED_DEVICE=""
 
 # Load config file if it exists
 if [ -f "$CONFIG_FILE" ]; then
@@ -104,6 +106,27 @@ if [ -z "$FIRMWARE_ZIP" ]; then
     echo "Specify with: $0 -f /path/to/firmware.zip"
     exit 1
 fi
+
+cleanup() {
+    # Best-effort cleanup; don't mask original errors
+    if [ -n "$MOUNTED_DEVICE" ] && [ "$DRY_RUN" = false ]; then
+        sudo umount "$MOUNT_POINT" 2>/dev/null || true
+        MOUNTED_DEVICE=""
+    fi
+    if [ -n "$WORK_DIR" ]; then
+        rm -rf "$WORK_DIR" 2>/dev/null || true
+        WORK_DIR=""
+    fi
+}
+
+on_interrupt() {
+    echo -e "\n${YELLOW}Interrupted, cleaning up...${NC}"
+    cleanup
+    exit 130
+}
+
+trap 'cleanup' EXIT
+trap 'on_interrupt' INT TERM
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║  ZMK Split Keyboard Flasher Enhanced  ║${NC}"
@@ -192,15 +215,33 @@ detect_device() {
     return 1
 }
 
+# Ensure sudo is available before asking to enter bootloader
+ensure_sudo_access() {
+    if [ "$DRY_RUN" = true ]; then
+        return 0
+    fi
+    
+    if sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    
+    echo -e "${YELLOW}➤ Checking sudo access${NC}"
+    if ! sudo -v; then
+        echo -e "${RED}  ✗ Sudo access required to mount and copy firmware${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}  ✓ Sudo access confirmed${NC}\n"
+}
+
 # Function to flash a half
 flash_half() {
     local half_name=$1
     local firmware_file=$2
-
+    
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║        Flashing $half_name Half          ${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-
+    
     echo -e "${YELLOW}➤ Please connect the $half_name half in bootloader mode${NC}"
     echo -e "  (Double-tap reset button on nice!nano)"
     echo ""
@@ -248,10 +289,12 @@ flash_half() {
         echo -e "${RED}  ✗ Failed to mount device${NC}"
         return 1
     }
-
+    MOUNTED_DEVICE="$DEVICE"
+    
     echo -e "${YELLOW}  Copying firmware...${NC}"
     sudo cp "$firmware_file" "$MOUNT_POINT/" || {
         sudo umount "$MOUNT_POINT"
+        MOUNTED_DEVICE=""
         echo -e "${RED}  ✗ Failed to copy firmware${NC}"
         return 1
     }
@@ -262,6 +305,7 @@ flash_half() {
     sudo umount "$MOUNT_POINT" || {
         echo -e "${YELLOW}  ⚠ Device may have auto-ejected (this is normal)${NC}"
     }
+    MOUNTED_DEVICE=""
 
     echo -e "${GREEN}  ✓ $half_name half flashed successfully!${NC}\n"
 
@@ -270,9 +314,11 @@ flash_half() {
 
 # Flash selected halves
 if [ "$FLASH_LEFT" = true ]; then
+    ensure_sudo_access || exit 1
     flash_half "LEFT" "$LEFT_FILE" || exit 1
 fi
 if [ "$FLASH_RIGHT" = true ]; then
+    ensure_sudo_access || exit 1
     flash_half "RIGHT" "$RIGHT_FILE" || exit 1
 fi
 
@@ -282,5 +328,5 @@ echo -e "${GREEN}╚════════════════════
 
 # Cleanup
 echo -e "${YELLOW}Cleaning up...${NC}"
-rm -rf "$WORK_DIR" 2>/dev/null || true
+cleanup
 echo -e "${GREEN}✓ Temporary files removed${NC}\n"
