@@ -129,7 +129,7 @@ trap 'cleanup' EXIT
 trap 'on_interrupt' INT TERM
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║  ZMK Split Keyboard Flasher Enhanced  ║${NC}"
+echo -e "${BLUE}║  ZMK Split Keyboard Flasher Enhanced   ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 
 # Step 1: Extract firmware
@@ -220,11 +220,11 @@ ensure_sudo_access() {
     if [ "$DRY_RUN" = true ]; then
         return 0
     fi
-    
+
     if sudo -n true 2>/dev/null; then
         return 0
     fi
-    
+
     echo -e "${YELLOW}➤ Checking sudo access${NC}"
     if ! sudo -v; then
         echo -e "${RED}  ✗ Sudo access required to mount and copy firmware${NC}"
@@ -237,11 +237,11 @@ ensure_sudo_access() {
 flash_half() {
     local half_name=$1
     local firmware_file=$2
-    
+
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║        Flashing $half_name Half          ${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-    
+
     echo -e "${YELLOW}➤ Please connect the $half_name half in bootloader mode${NC}"
     echo -e "  (Double-tap reset button on nice!nano)"
     echo ""
@@ -290,7 +290,7 @@ flash_half() {
         return 1
     }
     MOUNTED_DEVICE="$DEVICE"
-    
+
     echo -e "${YELLOW}  Copying firmware...${NC}"
     sudo cp "$firmware_file" "$MOUNT_POINT/" || {
         sudo umount "$MOUNT_POINT"
@@ -323,7 +323,7 @@ if [ "$FLASH_RIGHT" = true ]; then
 fi
 
 echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     All Done! Keyboard Ready to Use   ║${NC}"
+echo -e "${GREEN}║     All Done! Keyboard Ready to Use    ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}\n"
 
 # Cleanup
