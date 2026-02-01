@@ -138,7 +138,7 @@ echo -e "  Right: ${BLUE}$RIGHT_FILE${NC}\n"
 detect_device() {
     local timeout=30
     local elapsed=0
-    
+
     echo -e "${YELLOW}  Scanning for bootloader device...${NC}" >&2
 
     list_candidates() {
@@ -160,20 +160,20 @@ detect_device() {
             echo "$existing_candidates"
             return 0
         fi
-        
+
         echo -e "${YELLOW}  ⚠ Multiple candidate devices already present:${NC}" >&2
         echo "$existing_candidates" >&2
         return 1
     fi
-    
+
     # Get list of current block devices
     local old_candidates
     old_candidates=$(list_candidates | sed 's|/dev/||')
-    
+
     while [ $elapsed -lt $timeout ]; do
         local new_candidates
         new_candidates=$(list_candidates | sed 's|/dev/||')
-        
+
         # Find newly appeared devices
         for dev in $new_candidates; do
             if ! echo "$old_candidates" | grep -qx "$dev"; then
@@ -182,12 +182,12 @@ detect_device() {
                 return 0
             fi
         done
-        
+
         sleep 1
         ((elapsed++))
         echo -ne "\r${YELLOW}  Waiting... ${elapsed}s${NC}" >&2
     done
-    
+
     echo -e "\n${YELLOW}  ⚠ Auto-detection timed out${NC}" >&2
     return 1
 }
@@ -196,11 +196,11 @@ detect_device() {
 flash_half() {
     local half_name=$1
     local firmware_file=$2
-    
+
     echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║        Flashing $half_name Half          ${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
-    
+
     echo -e "${YELLOW}➤ Please connect the $half_name half in bootloader mode${NC}"
     echo -e "  (Double-tap reset button on nice!nano)"
     echo ""
@@ -217,54 +217,54 @@ flash_half() {
         echo -e "${GREEN}  ✓ [dry-run] $half_name half simulated successfully!${NC}\n"
         return 0
     fi
-    
+
     DEVICE=""
-    
+
     if [ -n "$DEVICE_OVERRIDE" ]; then
         DEVICE="$DEVICE_OVERRIDE"
     elif [ "$AUTO_DETECT" = true ]; then
         echo -e "Press Enter when ready, or type a device path directly:"
         read -r -t 2 user_device 2>/dev/null || true
-        
+
         if [ -n "$user_device" ]; then
             DEVICE="$user_device"
         else
             DEVICE=$(detect_device)
         fi
     fi
-    
+
     if [ -z "$DEVICE" ]; then
         echo -e "\nEnter device path (e.g., /dev/sdl):"
         read DEVICE
     fi
-    
+
     if [ ! -b "$DEVICE" ]; then
         echo -e "${RED}  ✗ Error: $DEVICE is not a valid block device${NC}"
         return 1
     fi
-    
+
     echo -e "${YELLOW}  Mounting $DEVICE to $MOUNT_POINT...${NC}"
     sudo mount "$DEVICE" "$MOUNT_POINT" || {
         echo -e "${RED}  ✗ Failed to mount device${NC}"
         return 1
     }
-    
+
     echo -e "${YELLOW}  Copying firmware...${NC}"
     sudo cp "$firmware_file" "$MOUNT_POINT/" || {
         sudo umount "$MOUNT_POINT"
         echo -e "${RED}  ✗ Failed to copy firmware${NC}"
         return 1
     }
-    
+
     echo -e "${YELLOW}  Syncing and unmounting...${NC}"
     sudo sync
     sleep 1
     sudo umount "$MOUNT_POINT" || {
         echo -e "${YELLOW}  ⚠ Device may have auto-ejected (this is normal)${NC}"
     }
-    
+
     echo -e "${GREEN}  ✓ $half_name half flashed successfully!${NC}\n"
-    
+
     sleep 2
 }
 
