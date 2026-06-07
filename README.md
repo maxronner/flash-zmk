@@ -14,6 +14,16 @@ chmod +x flash-zmk.sh
 # Run with a firmware zip
 ./flash-zmk.sh /path/to/firmware.zip
 
+# Run with extracted firmware files
+./flash-zmk.sh /path/to/firmware-dir
+
+# Run with a direct UF2 file
+./flash-zmk.sh --left /path/to/corne_left-nice_nano_v2-zmk.uf2
+./flash-zmk.sh --right /path/to/corne_right-nice_nano_v2-zmk.uf2
+
+# Direct ZMK build outputs also work when the side is in the path
+./flash-zmk.sh ../zmk-config/build/corne_left/zephyr/zmk.uf2
+
 # Simulate without flashing
 ./flash-zmk.sh --dry-run /path/to/firmware.zip
 
@@ -25,7 +35,8 @@ chmod +x flash-zmk.sh
 ## Features
 
 ### Script
-- Extracts the provided firmware zip to a temp directory
+- Accepts a firmware zip, extracted firmware directory, or direct UF2 file
+- Extracts firmware zips to a temp directory
 - Prompts for each half sequentially
 - Handles mounting and copying
 - Color-coded output
@@ -62,12 +73,12 @@ chmod +x flash-zmk.sh
 ## Usage Workflow
 
 ### Manual Steps (can't be automated):
-1. Download firmware.zip from GitHub Actions
+1. Download firmware.zip from GitHub Actions, or use extracted/direct UF2 artifacts
 2. Connect left half and put in bootloader mode (double-tap reset)
 3. Connect right half and put in bootloader mode (double-tap reset)
 
 ### Automated Steps:
-- Extract firmware.zip ✓
+- Resolve firmware input ✓
 - Find correct .uf2 files ✓
 - Detect bootloader device ✓
 - Mount device ✓
@@ -82,7 +93,7 @@ Add to your `~/.bashrc` or `~/.zshrc`:
 
 ```bash
 alias flash='flash-zmk'
-alias flashleft='flash-zmk /path/to/firmware.zip'  # If you want to flash left only
+alias flashleft='flash-zmk --left /path/to/firmware.zip'
 ```
 
 ### Integration with GitHub Actions
@@ -129,7 +140,8 @@ SUBSYSTEM=="block", ATTRS{idVendor}=="239a", ATTRS{idProduct}=="0029", ACTION=="
 - Always verify the device before flashing
 
 ### Firmware files not found
-- Check that firmware.zip contains files matching `*left*.uf2` and `*right*.uf2`
+- Check that firmware input contains files matching `*left*.uf2` and `*right*.uf2`
+- When passing one direct UF2 file, use `--left` or `--right` if neither the filename nor path includes `left` or `right`
 - Adjust patterns in config file if needed
 
 ## Customization
@@ -162,7 +174,7 @@ $ flash-zmk ~/Downloads/firmware.zip
 ║  ZMK Split Keyboard Flasher Enhanced  ║
 ╚════════════════════════════════════════╝
 
-➤ Extracting firmware from: firmware.zip
+➤ Resolving firmware from: firmware.zip
   ✓ Firmware extracted
 
 Found firmware files:

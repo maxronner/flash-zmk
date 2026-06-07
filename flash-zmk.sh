@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ZMK Split Keyboard Flasher - Enhanced Version
 # Supports configuration file and better device detection
@@ -14,7 +14,7 @@ NC='\033[0m'
 
 # Default configuration
 CONFIG_FILE="${HOME}/.config/zmk-flasher.conf"
-FIRMWARE_ZIP=""
+FIRMWARE_INPUT=""
 MOUNT_POINT="/mnt"
 LEFT_PATTERN="*left*.uf2"
 RIGHT_PATTERN="*right*.uf2"
@@ -27,6 +27,8 @@ EXPLICIT_RIGHT=false
 DEVICE_OVERRIDE=""
 WORK_DIR=""
 MOUNTED_DEVICE=""
+LEFT_FILE=""
+RIGHT_FILE=""
 
 # Load config file if it exists
 if [ -f "$CONFIG_FILE" ]; then
@@ -37,7 +39,7 @@ fi
 while [[ $# -gt 0 ]]; do
     case $1 in
         -f|--firmware)
-            FIRMWARE_ZIP="$2"
+            FIRMWARE_INPUT="$2"
             shift 2
             ;;
         -m|--mount-point)
@@ -67,15 +69,15 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "ZMK Split Keyboard Flasher"
             echo ""
-            echo "Usage: $0 [OPTIONS] <firmware.zip>"
+            echo "Usage: $0 [OPTIONS] <firmware.zip|firmware-dir|firmware.uf2>"
             echo ""
             echo "Options:"
-            echo "  -f, --firmware FILE     Firmware zip file (required)"
+            echo "  -f, --firmware PATH     Firmware zip, directory, or UF2 file (required)"
             echo "  -m, --mount-point DIR   Mount point (default: /mnt)"
             echo "  --no-auto-detect        Disable automatic device detection"
             echo "  --dry-run               Simulate flashing without mounting or copying"
-            echo "  --left                  Flash left half only"
-            echo "  --right                 Flash right half only"
+            echo "  --left                  Flash left half only; required for ambiguous direct UF2"
+            echo "  --right                 Flash right half only; required for ambiguous direct UF2"
             echo "  --device PATH           Use this device path for flashing"
             echo "  -h, --help              Show this help message"
             echo ""
@@ -83,7 +85,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            FIRMWARE_ZIP="$1"
+            FIRMWARE_INPUT="$1"
             shift
             ;;
     esac
@@ -101,9 +103,11 @@ if [ "$FLASH_LEFT" = false ] && [ "$FLASH_RIGHT" = false ]; then
 fi
 
 # If no firmware specified, require it as an argument
-if [ -z "$FIRMWARE_ZIP" ]; then
-    echo -e "${RED}Error: Firmware zip is required${NC}"
+if [ -z "$FIRMWARE_INPUT" ]; then
+    echo -e "${RED}Error: Firmware input is required${NC}"
     echo "Specify with: $0 -f /path/to/firmware.zip"
+    echo "         or: $0 --left /path/to/left.uf2"
+    echo "         or: $0 --right /path/to/right.uf2"
     exit 1
 fi
 
@@ -132,30 +136,139 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║  ZMK Split Keyboard Flasher Enhanced   ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 
-# Step 1: Extract firmware
-echo -e "${YELLOW}➤ Extracting firmware from: $(basename "$FIRMWARE_ZIP")${NC}"
-if [ ! -f "$FIRMWARE_ZIP" ]; then
-    echo -e "${RED}  ✗ Error: $FIRMWARE_ZIP not found${NC}"
-    exit 1
-fi
+find_firmware_file() {
+    local search_dir=$1
+    local pattern=$2
 
-WORK_DIR="$(mktemp -d)"
-unzip -o -q "$FIRMWARE_ZIP" -d "$WORK_DIR"
-echo -e "${GREEN}  ✓ Firmware extracted${NC}\n"
+    find "$search_dir" -type f -name "$pattern" | sort | head -n1
+}
 
-# Find the UF2 files
-LEFT_FILE=$(ls "$WORK_DIR"/$LEFT_PATTERN 2>/dev/null | head -n1)
-RIGHT_FILE=$(ls "$WORK_DIR"/$RIGHT_PATTERN 2>/dev/null | head -n1)
+assign_direct_uf2() {
+    local uf2_file=$1
+    local uf2_name
+    local uf2_path
+    local looks_left=false
+    local looks_right=false
+    uf2_name=$(basename "$uf2_file")
+    uf2_path=${uf2_file,,}
 
-if [ -z "$LEFT_FILE" ] || [ -z "$RIGHT_FILE" ]; then
-    echo -e "${RED}  ✗ Error: Could not find left and right firmware files${NC}"
-    echo "    Looking for patterns: $LEFT_PATTERN and $RIGHT_PATTERN"
-    exit 1
-fi
+    case "$uf2_name" in
+        $LEFT_PATTERN)
+            looks_left=true
+            ;;
+    esac
+    case "$uf2_name" in
+        $RIGHT_PATTERN)
+            looks_right=true
+            ;;
+    esac
 
-echo -e "${GREEN}Found firmware files:${NC}"
-echo -e "  Left:  ${BLUE}$LEFT_FILE${NC}"
-echo -e "  Right: ${BLUE}$RIGHT_FILE${NC}\n"
+    case "$uf2_path" in
+        *left*)
+            looks_left=true
+            ;;
+    esac
+    case "$uf2_path" in
+        *right*)
+            looks_right=true
+            ;;
+    esac
+
+    if [ "$FLASH_LEFT" = true ] && [ "$FLASH_RIGHT" = false ]; then
+        if [ "$looks_right" = true ] && [ "$looks_left" = false ]; then
+            echo -e "${RED}  ✗ Error: $uf2_file looks like right-side firmware, but --left was selected${NC}"
+            return 1
+        fi
+        LEFT_FILE="$uf2_file"
+        return 0
+    fi
+
+    if [ "$FLASH_RIGHT" = true ] && [ "$FLASH_LEFT" = false ]; then
+        if [ "$looks_left" = true ] && [ "$looks_right" = false ]; then
+            echo -e "${RED}  ✗ Error: $uf2_file looks like left-side firmware, but --right was selected${NC}"
+            return 1
+        fi
+        RIGHT_FILE="$uf2_file"
+        return 0
+    fi
+
+    if [ "$looks_left" = true ] && [ "$looks_right" = false ]; then
+        LEFT_FILE="$uf2_file"
+        FLASH_RIGHT=false
+        return 0
+    fi
+
+    if [ "$looks_right" = true ] && [ "$looks_left" = false ]; then
+        RIGHT_FILE="$uf2_file"
+        FLASH_LEFT=false
+        return 0
+    fi
+
+    if [ "$looks_left" = true ] && [ "$looks_right" = true ]; then
+        echo -e "${RED}  ✗ Error: Direct UF2 input looks ambiguous: $uf2_file${NC}"
+        echo "    Select the target half explicitly with --left or --right"
+        return 1
+    fi
+
+    echo -e "${RED}  ✗ Error: Direct UF2 input must include left or right in the filename or path${NC}"
+    echo "    Or select the target half explicitly with --left or --right"
+    return 1
+}
+
+resolve_firmware_files() {
+    echo -e "${YELLOW}➤ Resolving firmware from: $(basename "$FIRMWARE_INPUT")${NC}"
+
+    if [ -d "$FIRMWARE_INPUT" ]; then
+        LEFT_FILE=$(find_firmware_file "$FIRMWARE_INPUT" "$LEFT_PATTERN")
+        RIGHT_FILE=$(find_firmware_file "$FIRMWARE_INPUT" "$RIGHT_PATTERN")
+        echo -e "${GREEN}  ✓ Firmware directory scanned${NC}\n"
+    elif [ -f "$FIRMWARE_INPUT" ]; then
+        case "$FIRMWARE_INPUT" in
+            *.zip)
+                WORK_DIR="$(mktemp -d)"
+                unzip -o -q "$FIRMWARE_INPUT" -d "$WORK_DIR"
+                LEFT_FILE=$(find_firmware_file "$WORK_DIR" "$LEFT_PATTERN")
+                RIGHT_FILE=$(find_firmware_file "$WORK_DIR" "$RIGHT_PATTERN")
+                echo -e "${GREEN}  ✓ Firmware extracted${NC}\n"
+                ;;
+            *.uf2|*.UF2)
+                assign_direct_uf2 "$FIRMWARE_INPUT" || return 1
+                echo -e "${GREEN}  ✓ Direct UF2 selected${NC}\n"
+                ;;
+            *)
+                echo -e "${RED}  ✗ Error: Unsupported firmware input: $FIRMWARE_INPUT${NC}"
+                echo "    Expected a .zip file, .uf2 file, or directory"
+                return 1
+                ;;
+        esac
+    else
+        echo -e "${RED}  ✗ Error: $FIRMWARE_INPUT not found${NC}"
+        return 1
+    fi
+
+    if [ "$FLASH_LEFT" = true ] && [ -z "$LEFT_FILE" ]; then
+        echo -e "${RED}  ✗ Error: Could not find left firmware file${NC}"
+        echo "    Looking for pattern: $LEFT_PATTERN"
+        return 1
+    fi
+
+    if [ "$FLASH_RIGHT" = true ] && [ -z "$RIGHT_FILE" ]; then
+        echo -e "${RED}  ✗ Error: Could not find right firmware file${NC}"
+        echo "    Looking for pattern: $RIGHT_PATTERN"
+        return 1
+    fi
+
+    echo -e "${GREEN}Found firmware files:${NC}"
+    if [ "$FLASH_LEFT" = true ]; then
+        echo -e "  Left:  ${BLUE}$LEFT_FILE${NC}"
+    fi
+    if [ "$FLASH_RIGHT" = true ]; then
+        echo -e "  Right: ${BLUE}$RIGHT_FILE${NC}"
+    fi
+    echo ""
+}
+
+resolve_firmware_files || exit 1
 
 # Function to detect bootloader device
 detect_device() {
